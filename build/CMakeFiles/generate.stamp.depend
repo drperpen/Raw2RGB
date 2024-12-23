@@ -82,6 +82,8 @@ C:/Program Files/CMake/share/cmake-3.21/Modules/Compiler/XLClang-CXX-DetermineCo
 C:/Program Files/CMake/share/cmake-3.21/Modules/Compiler/zOS-C-DetermineCompiler.cmake
 C:/Program Files/CMake/share/cmake-3.21/Modules/Compiler/zOS-CXX-DetermineCompiler.cmake
 C:/Program Files/CMake/share/cmake-3.21/Modules/CompilerId/VS-10.vcxproj.in
+C:/Program Files/CMake/share/cmake-3.21/Modules/FindPackageHandleStandardArgs.cmake
+C:/Program Files/CMake/share/cmake-3.21/Modules/FindPackageMessage.cmake
 C:/Program Files/CMake/share/cmake-3.21/Modules/Internal/FeatureTesting.cmake
 C:/Program Files/CMake/share/cmake-3.21/Modules/Platform/Windows-Determine-CXX.cmake
 C:/Program Files/CMake/share/cmake-3.21/Modules/Platform/Windows-MSVC-C.cmake
@@ -89,6 +91,12 @@ C:/Program Files/CMake/share/cmake-3.21/Modules/Platform/Windows-MSVC-CXX.cmake
 C:/Program Files/CMake/share/cmake-3.21/Modules/Platform/Windows-MSVC.cmake
 C:/Program Files/CMake/share/cmake-3.21/Modules/Platform/Windows.cmake
 C:/Program Files/CMake/share/cmake-3.21/Modules/Platform/WindowsPaths.cmake
+D:/Downloads/opencv/build/OpenCVConfig-version.cmake
+D:/Downloads/opencv/build/OpenCVConfig.cmake
+D:/Downloads/opencv/build/x64/vc16/lib/OpenCVConfig.cmake
+D:/Downloads/opencv/build/x64/vc16/lib/OpenCVModules-debug.cmake
+D:/Downloads/opencv/build/x64/vc16/lib/OpenCVModules-release.cmake
+D:/Downloads/opencv/build/x64/vc16/lib/OpenCVModules.cmake
 E:/dev/Raw2RGB/CMakeLists.txt
 E:/dev/Raw2RGB/build/CMakeFiles/3.21.0/CMakeCCompiler.cmake
 E:/dev/Raw2RGB/build/CMakeFiles/3.21.0/CMakeCXXCompiler.cmake

@@ -1,5 +1,18 @@
 cmake_minimum_required(VERSION 3.5.0)
 project(Raw2RGB VERSION 0.1.0 LANGUAGES C CXX)
 
-add_executable(Raw2RGB main.cpp)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+set(PROJECT_FOLDER ${CMAKE_CURRENT_SOURCE_DIR})
+
+find_package(OpenCV REQUIRED)
+
+include_directories(${PROJECT_FOLDER}/include $ENV{Eigen3_DIR} ${OpenCV_INCLUDE_DIRS})
+
+add_executable(Raw2RGB src/main.cpp)
+
+target_link_libraries(Raw2RGB ${OpenCV_LIBS})
