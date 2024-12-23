@@ -3,8 +3,8 @@
 *.obj
 *.so
 *.exe
-/build/
-/out/
+/build
+/out
 
 # Visual Studio Code
 .vscode/
