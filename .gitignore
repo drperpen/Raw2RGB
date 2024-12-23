@@ -1,0 +1,10 @@
+# C++ Build artifacts
+*.o
+*.obj
+*.so
+*.exe
+/build/
+/out/
+
+# Visual Studio Code
+.vscode/
