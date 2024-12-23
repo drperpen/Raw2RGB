@@ -5,6 +5,7 @@
 *.exe
 /build
 /out
+/python
 
 # Visual Studio Code
 .vscode/

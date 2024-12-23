@@ -1,6 +1,54 @@
 #include "image_process.h"
 
-std::unordered_map<int, Image> loadImages(std::string path, int frame, int startCam, int endCam, std::map<int, cameraStrct> camData)
+cv::Mat loadImage(std::string imagePath) {
+    cv::Mat mat = cv::imread(imagePath, cv::IMREAD_ANYDEPTH);
+    return mat;
+}
+
+void saveImage(std::string imagePath, const cv::Mat &image) {
+    cv::imwrite(imagePath, image);
+
+}
+
+cv::Mat processImage(const cv::Mat &image, const int demosaicMode) {
+
+    // img_d = cv.demosaicing(image, cv.COLOR_BayerRG2BGR)
+    // ratio = np.amax(img_d) / 255
+    // img_d = (img_d / ratio).astype('uint8')
+    // gamma = 1.75
+    // invGamma = 1.0 / gamma
+    // table = np.array([((i / 255.0) ** invGamma) * 255
+    //     for i in np.arange(0, 256)]).astype("uint8")
+    // img_d = cv.LUT(img_d, table)
+
+    cv::Mat processed_image;
+    cv::demosaicing(image, processed_image, demosaicMode); //https://docs.opencv.org/3.4/d8/d01/group__imgproc__color__conversions.html
+
+// After demosaicing (processed_image is still 16-bit)
+double maxVal;
+cv::minMaxLoc(processed_image, nullptr, &maxVal);
+double ratio = maxVal / 255.0;  // Scale to 8-bit range
+
+// Convert to 8-bit
+processed_image = processed_image / ratio;
+processed_image.convertTo(processed_image, CV_8U);  // This will scale to 0-255 range
+
+// Create gamma lookup table for 8-bit
+double gamma = 1.75;
+double invGamma = 1.0 / gamma;
+cv::Mat lookupTable(1, 256, CV_8U);
+uchar* p = lookupTable.ptr();
+for (int i = 0; i < 256; ++i) {
+    p[i] = cv::saturate_cast<uchar>(pow(i / 255.0, invGamma) * 255.0);
+}
+
+// Apply gamma correction using LUT
+cv::LUT(processed_image, lookupTable, processed_image);
+
+    return processed_image;
+}
+
+std::unordered_map<int, Image> loadAndProcessImages(std::string path, int frame, int startCam, int endCam, std::map<int, cameraStrct> camData)
 {
 
     auto start = std::chrono::system_clock::now();
@@ -73,22 +121,22 @@ std::unordered_map<int, Image> loadImages(std::string path, int frame, int start
             cv::Mat undistortedImg;
             cv::remap(img, undistortedImg, map1, map2, cv::INTER_LINEAR);
 
-            imagesStrct imgStrct = imagesStrct(idx, undistortedImg, pathIter);
+            // imagesStrct imgStrct = imagesStrct(idx, undistortedImg, pathIter);
 
-            // Undistort
+            // // Undistort
 
-            mtx.lock();
-            imgs.insert(std::make_pair(idx, imgStrct));
-            mtx.unlock();
+            // mtx.lock();
+            // imgs.insert(std::make_pair(idx, imgStrct));
+            // mtx.unlock();
         }
         else
         {
             std::cout << "Could not find image: " << pathIter << std::endl;
         }
     }
-    Images::images = imgs;
-    auto end = std::chrono::system_clock::now();
-    std::chrono::duration<double> elap = end - start;
-    std::cout << imgs.size() << " images loaded in " << elap.count() << " seconds" << std::endl;
+    // Images::images = imgs;
+    // auto end = std::chrono::system_clock::now();
+    // std::chrono::duration<double> elap = end - start;
+    // std::cout << imgs.size() << " images loaded in " << elap.count() << " seconds" << std::endl;
     return images;
 }
