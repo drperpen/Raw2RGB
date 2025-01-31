@@ -1,11 +1,11 @@
 #include "image_process.h"
 
-cv::Mat loadImage(std::string imagePath) {
+cv::Mat loadImage(const std::string &imagePath) {
     cv::Mat mat = cv::imread(imagePath, cv::IMREAD_ANYDEPTH);
     return mat;
 }
 
-void saveImage(std::string imagePath, const cv::Mat &image) {
+void saveImage(const std::string imagePath, const cv::Mat &image) {
     cv::imwrite(imagePath, image);
 
 }
@@ -21,8 +21,8 @@ cv::Mat processImage(const cv::Mat &image, const int demosaicMode) {
     //     for i in np.arange(0, 256)]).astype("uint8")
     // img_d = cv.LUT(img_d, table)
 
-    cv::Mat processed_image;
-    cv::demosaicing(image, processed_image, demosaicMode); //https://docs.opencv.org/3.4/d8/d01/group__imgproc__color__conversions.html
+cv::Mat processed_image;
+cv::demosaicing(image, processed_image, demosaicMode); //https://docs.opencv.org/3.4/d8/d01/group__imgproc__color__conversions.html
 
 // After demosaicing (processed_image is still 16-bit)
 double maxVal;
