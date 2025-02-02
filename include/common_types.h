@@ -9,7 +9,8 @@ struct Image
 {
     int frame;
     cv::Mat img;
-    std::string path;
+    std::string readPath;
+    std::string writePath;
 };
 
 struct cameraStrct

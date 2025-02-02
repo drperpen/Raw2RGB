@@ -15,11 +15,24 @@ find_package(OpenCV REQUIRED)
 # Find Eigen3
 find_package(Eigen3 REQUIRED)
 
+# Add OpenMP support
+find_package(OpenMP)
+
 # Include directories
 include_directories(${PROJECT_FOLDER}/include)
 
 # Add executable with source files
 add_executable(Raw2RGB src/main.cpp src/image_process.cpp)
+
+
+if(OpenMP_CXX_FOUND)
+    message(STATUS "Found OpenMP, enabling support.")
+    target_compile_options(Raw2RGB PRIVATE ${OpenMP_CXX_FLAGS})
+    target_link_libraries(Raw2RGB PRIVATE OpenMP::OpenMP_CXX)
+else()
+    message(WARNING "OpenMP not found, parallelization will be disabled.")
+endif()
+
 
 # Link libraries
 target_link_libraries(Raw2RGB PRIVATE ${OpenCV_LIBS} Eigen3::Eigen)

@@ -3,28 +3,32 @@
 #include "common_types.h"
 #include "image_process.h"
 
-#include <thread> // for std::this_thread::sleep_for
-#include <chrono> // for std::chrono::seconds
 
-int main(int argc, char** argv){
+int main(const int argc, char** argv){
 
-    if (argc < 3) {
-        std::cerr << "Error with inputs!" << std::endl;
-        std::cerr << "Usage: Raw2RGB.exe input_path output_path" << std::endl;
-        std::exit(1);
+    if (argc < 4) {
+        std::cerr << "Usage: Raw2RGB.exe input_path_folder output_path_folder gamma_value" << std::endl;
+        return 1;
     }
-    std::string img_load_path = argv[1];
-    std::string img_save_path = argv[2];
+
+    const std::string img_load_path = argv[1];
+    const std::string img_save_path = argv[2];
+    const double gamma = std::stof(argv[3]);
+
+    // Set default demosaic mode if not in arguments
     int demosaic_mode = 48;
-    if (argv[3]) {
+    if (argv[4]) {
         demosaic_mode = std::stoi(argv[3]);
     }
 
-    cv::Mat img = loadImage(img_load_path);
-    cv::Mat img_processed = processImage(img, demosaic_mode);
+    const std::vector<Image> raw_files = getRawFiles(img_load_path, img_save_path);
+    if (raw_files.empty()) {
+        std::cerr << "No raw files found in " << img_load_path << std::endl;
+        return 1;
+    }
 
-    std::this_thread::sleep_for(std::chrono::seconds(5));
+    processImages(raw_files, demosaic_mode, gamma);
 
-    saveImage(img_save_path, img_processed);
-    std::cout << "Saved image: " << img_save_path << std::endl;
+
+    return 0;
 }
