@@ -13,6 +13,19 @@ struct Image
     std::string writePath;
 };
 
+
+// struct VignetteModel {
+//     cv::Mat correctionMap;
+//     std::vector<cv::Mat> channelCoeffs;  // Store coefficients for each channel
+// };
+
+struct VignetteModel {
+    cv::Mat correctionMap;
+    std::vector<cv::Mat> channelCoeffs;
+    float a, b, c; // Adding polynomial coefficients
+};
+
+
 struct cameraStrct
 {
     // Camera pose

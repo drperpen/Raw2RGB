@@ -12,5 +12,8 @@ void correctDeadPixels(cv::Mat& rawImage, float brightFactor = 2.5, float darkFa
 cv::Mat createBayerMask(const cv::Size& size, int by, int bx);
 std::vector<Image> getRawFiles(const std::string& folderPath, const std::string& outputFolder);
 void saveImage(const std::string &imagePath, const cv::Mat &image);
-void processImages(const std::vector<Image> &images, int demosaicMode, double gamma);
+void processImages(const std::vector<Image> &images, int demosaicMode, double gamma, std::string vignettePath);
 std::unordered_map<int, Image> loadAndProcessImages(std::string path, int frame, int startCam, int endCam, std::map<int, cameraStrct> camData);
+
+VignetteModel estimateVignetting(const cv::Mat& rawBayer, const std::string &outPath, const std::string& bayerPattern = "RGGB", int polyDegree = 6);
+cv::Mat applyVignetteCorrection(const cv::Mat& rawBayer, const VignetteModel& model);

@@ -191,18 +191,12 @@ std::vector<Image> getRawFiles(const std::string& folderPath, const std::string&
     }
     return images;
 }
+//         cv::demosaicing(image, processed_image, demosaicMode); //https://docs.opencv.org/3.4/d8/d01/group__imgproc__color__conversions.html
 
+void processImages(const std::vector<Image> &images, const int demosaicMode, const double gamma, const std::string vignettePath) {
 
-void processImages(const std::vector<Image> &images, const int demosaicMode, const double gamma) {
-
-    // img_d = cv.demosaicing(image, cv.COLOR_BayerRG2BGR)
-    // ratio = np.amax(img_d) / 255
-    // img_d = (img_d / ratio).astype('uint8')
-    // gamma = 1.75
-    // invGamma = 1.0 / gamma
-    // table = np.array([((i / 255.0) ** invGamma) * 255
-    //     for i in np.arange(0, 256)]).astype("uint8")
-    // img_d = cv.LUT(img_d, table)
+    const int ACTUAL_MAX_VALUE = 4095;
+    const int ACTUAL_MAX_BLACKLEVEL = 64;
 
     std::filesystem::path filePath(images[0].writePath);
     std::filesystem::path folderPath = filePath.parent_path();
@@ -222,45 +216,55 @@ void processImages(const std::vector<Image> &images, const int demosaicMode, con
         std::cout << "Saving images to : " << folderPath.string() << std::endl;
     }
 
+    // Load vignette map
+    // Load
+    cv::Mat image_ref = loadImage(images[0].readPath);
+    cv::Mat loadedMap(image_ref.rows, image_ref.cols, CV_64F);
+    FILE* fp = fopen(vignettePath.c_str(), "rb");
+    fread(loadedMap.data, sizeof(double), image_ref.rows*image_ref.cols, fp);
+    fclose(fp);
+    VignetteModel model;
+    model.correctionMap = loadedMap;
+
+    cv::Mat blackLevelMat = cv::Mat::ones(2, 2, CV_32F) * ACTUAL_MAX_BLACKLEVEL;
+
+
 
 #pragma omp parallel for
     for (int idx = 0; idx < images.size(); idx++) {
 
-        cv::Mat image = loadImage(images[idx].readPath);
+        cv::Mat image_ = loadImage(images[idx].readPath);
 
-        // constexpr int offset = 2;
-        // for (int i = -offset; i <= offset; i++) {
-        //     printImageInfo(image, cv::Point(1087+i, 3077+i));
-        // }
+        // Create mask for non-zero pixels (valid image data)
+        cv::Mat mask = (image_ != 0);
 
-        correctDeadPixels(image, 1.5f, 0.75f);
-        // correctDeadPixels_SIMD(image, 1.5f, 0.75f);
-        // cv::blur(image, image, cv::Size(3, 3));
+        correctDeadPixels(image_, 1.5f, 0.75f);
+        cv::Mat image = applyVignetteCorrection(image_, model);
+
+        // Convert to float for processing
+        image.convertTo(image, CV_32F);
+        // Black level correction
+        cv::subtract(image, ACTUAL_MAX_BLACKLEVEL, image);
+        cv::max(image, 0, image);
+        // Normalize to full 16-bit range
+        image.convertTo(image, CV_32F, 1.0 / (ACTUAL_MAX_VALUE - ACTUAL_MAX_BLACKLEVEL));
+
+        // Convert to 16-bit
+        image.convertTo(image, CV_16U, 65535.0);
 
         cv::Mat processed_image;
         cv::demosaicing(image, processed_image, demosaicMode); //https://docs.opencv.org/3.4/d8/d01/group__imgproc__color__conversions.html
 
-
-
         // After demosaicing (processed_image is still 16-bit)
         double max_value;
         cv::minMaxLoc(processed_image, nullptr, &max_value);
-        const double ratio = max_value / 255.0;  // Scale to 8-bit range
 
-        // Convert to 8-bit
-        processed_image = processed_image / ratio;
-        processed_image.convertTo(processed_image, CV_8U);  // This will scale to 0-255 range
-
-        // Create gamma lookup table for 8-bit
-        const double inv_gamma = 1.0 / gamma;
-        cv::Mat lookupTable(1, 256, CV_8U);
-        uchar* p = lookupTable.ptr();
-        for (int i = 0; i < 256; ++i) {
-            p[i] = cv::saturate_cast<uchar>(pow(i / 255.0, inv_gamma) * 255.0);
+        // Apply gamma correction
+        if (gamma != 1.0) {
+            processed_image.convertTo(processed_image, CV_32F, 1.0/65535.0);
+            cv::pow(processed_image, gamma, processed_image);
+            processed_image.convertTo(processed_image, CV_16U, 65535.0);
         }
-
-        // Apply gamma correction using LUT
-        cv::LUT(processed_image, lookupTable, processed_image);
 
         // Save image
         saveImage(images[idx].writePath, processed_image);
@@ -268,6 +272,188 @@ void processImages(const std::vector<Image> &images, const int demosaicMode, con
 
     std::cout << "Finished Saving images to : " << folderPath.string() <<  std::endl;
 }
+
+
+float calculateEntropy(float a, float b, float c, const cv::Mat& img) {
+    const int rows = img.rows;
+    const int cols = img.cols;
+
+    float centerX = cols/2.0f, centerY = rows/2.0f;
+    const float maxRadius = std::sqrt(centerX*centerX + centerY*centerY);
+
+    // Create floating point image for intermediate calculations
+    cv::Mat floatImg(img.size(), CV_32F);
+
+    // Apply vignette correction formula
+    for(int y = 0; y < rows; y++) {
+        for(int x = 0; x < cols; x++) {
+            float dx = x - centerX;
+            float dy = y - centerY;
+            float r = std::sqrt(dx*dx + dy*dy) / maxRadius;
+            float r2 = r*r;
+            float r4 = r2*r2;
+            float r6 = r2*r4;
+            float g = 1 + a*r2 + b*r4 + c*r6;
+            floatImg.at<float>(y, x) = img.at<uint16_t>(y, x) * g;
+        }
+    }
+
+    // Calculate log image
+    cv::Mat logImg;
+    floatImg.convertTo(logImg, CV_32F);
+    cv::log(1.0f + floatImg, logImg);
+    logImg = 255.0f * logImg / 8.0f;
+
+
+    // Calculate histogram
+    float histogram[256] = {0};
+    for(int y = 0; y < rows; y++) {
+        for(int x = 0; x < cols; x++) {
+            float val = logImg.at<float>(y, x);
+            int k_down = std::floor(val);
+            int k_up = std::ceil(val);
+            if(k_down >= 0 && k_down < 256)
+                histogram[k_down] += (1 + k_down - val);
+            if(k_up >= 0 && k_up < 256)
+                histogram[k_up] += (val - k_up);
+        }
+    }
+
+    // Smooth histogram
+    float tempHist[264];
+    for(int i = 0; i < 4; i++) tempHist[i] = histogram[4-i];
+    std::memcpy(tempHist + 4, histogram, 256 * sizeof(float));
+    for(int i = 0; i < 4; i++) tempHist[260+i] = histogram[251+i];
+
+    for(int i = 0; i < 256; i++) {
+        histogram[i] = (tempHist[i] + 2*tempHist[i+1] + 3*tempHist[i+2] +
+                       4*tempHist[i+3] + 5*tempHist[i+4] + 4*tempHist[i+5] +
+                       3*tempHist[i+6] + 2*tempHist[i+7] + tempHist[i+8]) / 25.0f;
+    }
+
+    // Calculate entropy
+    float sum = 0;
+    for(int i = 0; i < 256; i++) sum += histogram[i];
+
+    float entropy = 0;
+    for(int i = 0; i < 256; i++) {
+        float p = histogram[i] / sum;
+        if(p > 0) entropy -= p * std::log(p);
+    }
+
+    return entropy;
+}
+
+bool checkCoefficients(float a, float b, float c) {
+    if ((a > 0) && (b == 0) && (c == 0)) return true;
+    if (a >= 0 && b > 0 && c == 0) return true;
+    if (c == 0 && b < 0 && -a <= 2*b) return true;
+    if (c > 0 && b*b < 3*a*c) return true;
+    if (c > 0 && b*b == 3*a*c && b >= 0) return true;
+    if (c > 0 && b*b == 3*a*c && -b >= 3*c) return true;
+    if (c > 0 && b*b > 3*a*c) {
+        float q_p = (-2*b + std::sqrt(4*b*b - 12*a*c))/(6*c);
+        float q_d = (-2*b - std::sqrt(4*b*b - 12*a*c))/(6*c);
+        if (q_p <= 0) return true;
+        if (q_d >= 1) return true;
+    }
+    if (c < 0 && b*b > 3*a*c) {
+        float q_p = (-2*b + std::sqrt(4*b*b - 12*a*c))/(6*c);
+        float q_d = (-2*b - std::sqrt(4*b*b - 12*a*c))/(6*c);
+        if (q_p >= 1 && q_d <= 0) return true;
+    }
+    return false;
+}
+
+VignetteModel estimateVignetting(const cv::Mat& rawBayer, const std::string &outPath, const std::string& bayerPattern, int polyDegree) {
+    cv::Mat grayImg;
+    cv::cvtColor(rawBayer, grayImg, cv::COLOR_BayerRG2GRAY);
+
+    float a = 0, b = 0, c = 0;
+    float a_min = 0, b_min = 0, c_min = 0;
+    float delta = 8;
+    float minEntropy = calculateEntropy(a, b, c, grayImg);
+
+    // Optimize coefficients
+    while(delta > 1.0f/256) {
+        for(float* param : {&a, &b, &c}) {
+            float orig = *param;
+
+            // Try increasing
+            *param = orig + delta;
+            if(checkCoefficients(a, b, c)) {
+                float entropy = calculateEntropy(a, b, c, grayImg);
+                if(entropy < minEntropy) {
+                    a_min = a; b_min = b; c_min = c;
+                    minEntropy = entropy;
+                }
+            }
+
+            // Try decreasing
+            *param = orig - delta;
+            if(checkCoefficients(a, b, c)) {
+                float entropy = calculateEntropy(a, b, c, grayImg);
+                if(entropy < minEntropy) {
+                    a_min = a; b_min = b; c_min = c;
+                    minEntropy = entropy;
+                }
+            }
+
+            *param = orig; // Reset for next iteration
+        }
+        delta /= 2.0f;
+    }
+
+    // Create correction map
+    cv::Mat correctionMap(rawBayer.size(), CV_64F);
+    const float centerX = rawBayer.cols/2.0f;
+    const float centerY = rawBayer.rows/2.0f;
+    const float maxRadius = std::sqrt(centerX*centerX + centerY*centerY);
+
+    for(int y = 0; y < rawBayer.rows; y++) {
+        for(int x = 0; x < rawBayer.cols; x++) {
+            float dx = x - centerX;
+            float dy = y - centerY;
+            float r = std::sqrt(dx*dx + dy*dy) / maxRadius;
+            float r2 = r*r;
+            float r4 = r2*r2;
+            float r6 = r2*r4;
+            correctionMap.at<double>(y, x) = 1 + a_min*r2 + b_min*r4 + c_min*r6;
+        }
+    }
+
+    VignetteModel model;
+    model.correctionMap = correctionMap;
+    model.a = a_min;
+    model.b = b_min;
+    model.c = c_min;
+
+    // Save correction map
+    if(!outPath.empty()) {
+        FILE* fp = fopen(outPath.c_str(), "wb");
+        if(fp) {
+            fwrite(correctionMap.data, sizeof(double), rawBayer.rows*rawBayer.cols, fp);
+            fclose(fp);
+        }
+    }
+
+    return model;
+}
+
+cv::Mat applyVignetteCorrection(const cv::Mat& rawBayer, const VignetteModel& model) {
+    cv::Mat result;
+    rawBayer.convertTo(result, CV_64F);
+    result = result.mul(model.correctionMap);
+
+    // Clip values to valid range
+    cv::min(result, 65535.0, result);
+    cv::max(result, 0.0, result);
+
+    cv::Mat output;
+    result.convertTo(output, CV_16U);
+    return output;
+}
+
 
 std::unordered_map<int, Image> loadAndProcessImages(const std::string &path, int frame, int startCam, int endCam, std::map<int, cameraStrct> camData)
     {
