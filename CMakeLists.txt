@@ -1,16 +1,38 @@
 cmake_minimum_required(VERSION 3.5.0)
 project(Raw2RGB VERSION 0.1.0 LANGUAGES C CXX)
 
+# Set C++ Standard
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Current source directory
 set(PROJECT_FOLDER ${CMAKE_CURRENT_SOURCE_DIR})
 
+# Find OpenCV
 find_package(OpenCV REQUIRED)
 
-include_directories(${PROJECT_FOLDER}/include $ENV{Eigen3_DIR} ${OpenCV_INCLUDE_DIRS})
+# Find Eigen3
+find_package(Eigen3 REQUIRED)
 
+# Add OpenMP support
+find_package(OpenMP)
+
+# Include directories
+include_directories(${PROJECT_FOLDER}/include)
+
+# Add executable with source files
 add_executable(Raw2RGB src/main.cpp src/image_process.cpp)
 
-target_link_libraries(Raw2RGB ${OpenCV_LIBS})
+
+if(OpenMP_CXX_FOUND)
+    message(STATUS "Found OpenMP, enabling support.")
+    target_compile_options(Raw2RGB PRIVATE /openmp:experimental)
+    target_link_libraries(Raw2RGB PRIVATE OpenMP::OpenMP_CXX)
+else()
+    message(WARNING "OpenMP not found, parallelization will be disabled.")
+endif()
+
+
+# Link libraries
+target_link_libraries(Raw2RGB PRIVATE ${OpenCV_LIBS} Eigen3::Eigen)

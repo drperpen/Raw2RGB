@@ -4,13 +4,28 @@
 #include <opencv2/opencv.hpp>
 #include <Eigen/Dense>
 #include <filesystem>
+#include <chrono>
 
 struct Image
 {
     int frame;
     cv::Mat img;
-    std::string path;
+    std::string readPath;
+    std::string writePath;
 };
+
+
+// struct VignetteModel {
+//     cv::Mat correctionMap;
+//     std::vector<cv::Mat> channelCoeffs;  // Store coefficients for each channel
+// };
+
+struct VignetteModel {
+    cv::Mat correctionMap;
+    std::vector<cv::Mat> channelCoeffs;
+    float a, b, c; // Adding polynomial coefficients
+};
+
 
 struct cameraStrct
 {
