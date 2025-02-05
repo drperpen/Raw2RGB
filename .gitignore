@@ -9,5 +9,7 @@
 
 # Visual Studio Code
 .vscode/
+
+.idea/
 /assets/
 /cmake-build-release/
