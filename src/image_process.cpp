@@ -230,44 +230,75 @@ void processImages(const std::vector<Image> &images, const int demosaicMode, con
 
 
 
-#pragma omp parallel for
+// #pragma omp parallel for
     for (int idx = 0; idx < images.size(); idx++) {
 
+        auto start_time = std::chrono::high_resolution_clock::now();
         cv::Mat image_ = loadImage(images[idx].readPath);
+        auto end_time = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+        std::cout << "Total processing time loadImage: " << duration << " s" << std::endl;
+
 
         // Create mask for non-zero pixels (valid image data)
         cv::Mat mask = (image_ != 0);
 
+        // End timing
+        start_time = std::chrono::high_resolution_clock::now();
         correctDeadPixels(image_, 1.5f, 0.75f);
-        cv::Mat image = applyVignetteCorrection(image_, model);
+        end_time = std::chrono::high_resolution_clock::now();
+        duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+        std::cout << "Total processing time correctDeadPixels: " << duration << " s" << std::endl;
 
+        start_time = std::chrono::high_resolution_clock::now();
+        cv::Mat image = applyVignetteCorrection(image_, model);
+        end_time = std::chrono::high_resolution_clock::now();
+        duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+        std::cout << "Total processing time applyVignetteCorrection: " << duration << " s" << std::endl;
+
+        start_time = std::chrono::high_resolution_clock::now();
         // Convert to float for processing
         image.convertTo(image, CV_32F);
         // Black level correction
-        cv::subtract(image, ACTUAL_MAX_BLACKLEVEL, image);
+        cv::Scalar blackLevelScalar = cv::mean(image_, mask);
+        double blackLevel = blackLevelScalar[0];
+        cv::subtract(image, blackLevel, image, mask);
         cv::max(image, 0, image);
         // Normalize to full 16-bit range
-        image.convertTo(image, CV_32F, 1.0 / (ACTUAL_MAX_VALUE - ACTUAL_MAX_BLACKLEVEL));
+        image.convertTo(image, CV_32F, 1.0 / (ACTUAL_MAX_VALUE - blackLevel));
+        end_time = std::chrono::high_resolution_clock::now();
+        duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+        std::cout << "Total processing time BLACKLEVEL: " << duration << " s" << std::endl;
 
         // Convert to 16-bit
         image.convertTo(image, CV_16U, 65535.0);
 
         cv::Mat processed_image;
+        start_time = std::chrono::high_resolution_clock::now();
         cv::demosaicing(image, processed_image, demosaicMode); //https://docs.opencv.org/3.4/d8/d01/group__imgproc__color__conversions.html
+        end_time = std::chrono::high_resolution_clock::now();
+        duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+        std::cout << "Total processing time demosaicing: " << duration << " s" << std::endl;
 
-        // After demosaicing (processed_image is still 16-bit)
-        double max_value;
-        cv::minMaxLoc(processed_image, nullptr, &max_value);
 
         // Apply gamma correction
+        start_time = std::chrono::high_resolution_clock::now();
         if (gamma != 1.0) {
             processed_image.convertTo(processed_image, CV_32F, 1.0/65535.0);
             cv::pow(processed_image, gamma, processed_image);
             processed_image.convertTo(processed_image, CV_16U, 65535.0);
         }
 
+        end_time = std::chrono::high_resolution_clock::now();
+        duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+        std::cout << "Total processing time gamma: " << duration << " s" << std::endl;
+
         // Save image
+        start_time = std::chrono::high_resolution_clock::now();
         saveImage(images[idx].writePath, processed_image);
+        end_time = std::chrono::high_resolution_clock::now();
+        duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+        std::cout << "Total processing time saveImage: " << duration << " s" << std::endl;
         }
 
     std::cout << "Finished Saving images to : " << folderPath.string() <<  std::endl;
