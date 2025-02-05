@@ -27,7 +27,7 @@ add_executable(Raw2RGB src/main.cpp src/image_process.cpp)
 
 if(OpenMP_CXX_FOUND)
     message(STATUS "Found OpenMP, enabling support.")
-    target_compile_options(Raw2RGB PRIVATE ${OpenMP_CXX_FLAGS} /openmp:experimental)
+    target_compile_options(Raw2RGB PRIVATE /openmp:experimental)
     target_link_libraries(Raw2RGB PRIVATE OpenMP::OpenMP_CXX)
 else()
     message(WARNING "OpenMP not found, parallelization will be disabled.")

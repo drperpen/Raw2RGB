@@ -14,7 +14,7 @@ int main(const int argc, char** argv) {
         return 0;
 
     } else {
-        if (argc < 5) {
+        if (argc < 4 || argc > 5) {
             std::cerr << "Usage: Raw2RGB.exe input_path_folder output_path_folder gamma_value" << std::endl;
             return 1;
         }
@@ -23,13 +23,13 @@ int main(const int argc, char** argv) {
         const std::string img_load_path = argv[1];
         const std::string img_save_path = argv[2];
         const double gamma = std::stof(argv[3]);
-        const std::string vignette_path = argv[4];
-
+        // const std::string vignette_path = argv[4];
+        const std::string vignette_path = "vignette_map.bin";
         // Set default demosaic mode if not in arguments
         int demosaic_mode = 48;
-        if (argv[5]) {
-            demosaic_mode = std::stoi(argv[5]);
-        }
+        // if (argv[4]) {
+        //     demosaic_mode = std::stoi(argv[4]);
+        // }
 
         // Get list of raw files
         const std::vector<Image> raw_files = getRawFiles(img_load_path, img_save_path);
@@ -50,6 +50,7 @@ int main(const int argc, char** argv) {
 
         // Calculate elapsed time in milliseconds
         auto duration = std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time).count();
+        std::cout << "Total processed files: " << raw_files.size() << std::endl;
         std::cout << "Total processing time: " << duration << " s" << std::endl;
 
         return 0;
