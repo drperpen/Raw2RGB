@@ -44,9 +44,12 @@ void printImageInfo(const cv::Mat& image, const cv::Point& pixel) {
     }
 }
 
-void correctDeadPixels(cv::Mat& rawImage, float brightFactor, float darkFactor) {
+void correctDeadPixels(cv::Mat& rawImage, cv::Mat &mask, float brightFactor, float darkFactor) {
     CV_Assert(rawImage.rows % 2 == 0 && rawImage.cols % 2 == 0);
     CV_Assert(rawImage.type() == CV_16U);
+    CV_Assert(mask.type() == CV_8U);
+    CV_Assert(rawImage.size() == mask.size());
+
 
     // Determine SIMD width based on available instruction sets
     #ifdef __AVX512F__
@@ -59,7 +62,7 @@ void correctDeadPixels(cv::Mat& rawImage, float brightFactor, float darkFactor) 
 
     // Pre-allocate all matrices at once
     const cv::Size halfSize(rawImage.cols / 2, rawImage.rows / 2);
-    std::array<cv::Mat, 4> subImages;
+    std::array<cv::Mat, 4> subImages, subMasks;
     std::array<cv::Mat, 4> medianSubsampled;
 
     // Create lookup tables for factors - using SIMD
@@ -72,9 +75,10 @@ void correctDeadPixels(cv::Mat& rawImage, float brightFactor, float darkFactor) 
         darkLUT[i] = static_cast<uint16_t>(i * darkFactor);
     }
 
-    // Pre-allocate subimages
+
     for (int i = 0; i < 4; ++i) {
         subImages[i] = cv::Mat(halfSize, CV_16U);
+        subMasks[i] = cv::Mat(halfSize, CV_8U);
         medianSubsampled[i] = cv::Mat(halfSize, CV_16U);
     }
 
@@ -83,47 +87,53 @@ void correctDeadPixels(cv::Mat& rawImage, float brightFactor, float darkFactor) 
         const int by = bayerIdx / 2;
         const int bx = bayerIdx % 2;
 
-        // Direct pointer access for faster subsampling
         auto* srcPtr = rawImage.ptr<uint16_t>();
+        auto* maskPtr = mask.ptr<uint8_t>();
         auto* dstPtr = subImages[bayerIdx].ptr<uint16_t>();
+        auto* dstMaskPtr = subMasks[bayerIdx].ptr<uint8_t>();
         const int stride = rawImage.cols;
 
-        // SIMD-optimized subsampling
+        // SIMD-optimized subsampling with mask
         for (int y = 0; y < halfSize.height; ++y) {
             const uint16_t* srcRow = srcPtr + (y * 2 + by) * stride + bx;
+            const uint8_t* maskRow = maskPtr + (y * 2 + by) * stride + bx;
             uint16_t* dstRow = dstPtr + y * halfSize.width;
+            uint8_t* dstMaskRow = dstMaskPtr + y * halfSize.width;
 
-            #pragma omp simd aligned(srcRow, dstRow: 64)
+            #pragma omp simd aligned(srcRow, maskRow, dstRow, dstMaskRow: 64)
             for (int x = 0; x < halfSize.width; ++x) {
                 dstRow[x] = srcRow[x * 2];
+                dstMaskRow[x] = maskRow[x * 2];
             }
         }
 
+        // Apply median blur
         cv::medianBlur(subImages[bayerIdx], medianSubsampled[bayerIdx], 3);
     }
 
-    // Process pixels and apply correction using SIMD
+    // Process pixels in SIMD chunks
     const int totalPixels = rawImage.total();
     auto* imgPtr = rawImage.ptr<uint16_t>();
-
-    // Process pixels in SIMD chunks
+    auto* maskPtr = mask.ptr<uint8_t>();
     const int alignedSize = totalPixels & ~(chunkSize - 1);
 
     for (int i = 0; i < alignedSize; i += chunkSize) {
         alignas(64) uint16_t pixelVals[chunkSize];
         alignas(64) uint16_t medianVals[chunkSize];
+        alignas(64) uint8_t maskVals[chunkSize];
         alignas(64) int bayerIndices[chunkSize];
         alignas(64) int yCoords[chunkSize];
         alignas(64) int xCoords[chunkSize];
 
-        // Prepare coordinates and bayer indices
-        #pragma omp simd aligned(yCoords, xCoords, bayerIndices: 64)
+        // Load values and prepare coordinates
+        #pragma omp simd aligned(pixelVals, maskVals, yCoords, xCoords, bayerIndices: 64)
         for (int j = 0; j < chunkSize; ++j) {
             const int idx = i + j;
             yCoords[j] = idx / rawImage.cols;
             xCoords[j] = idx % rawImage.cols;
             bayerIndices[j] = (yCoords[j] % 2) * 2 + (xCoords[j] % 2);
             pixelVals[j] = imgPtr[idx];
+            maskVals[j] = maskPtr[idx];
         }
 
         // Get median values
@@ -132,18 +142,21 @@ void correctDeadPixels(cv::Mat& rawImage, float brightFactor, float darkFactor) 
             medianVals[j] = medianSubsampled[bayerIndices[j]].at<uint16_t>(yCoords[j]/2, xCoords[j]/2);
         }
 
-        // Compare and correct
-        #pragma omp simd aligned(pixelVals, medianVals: 64)
+        // Compare and correct only masked pixels
+        #pragma omp simd aligned(pixelVals, medianVals, maskVals: 64)
         for (int j = 0; j < chunkSize; ++j) {
             const int idx = i + j;
-            if (pixelVals[j] > brightLUT[medianVals[j]] || pixelVals[j] < darkLUT[medianVals[j]]) {
+            if (maskVals[j] && (pixelVals[j] > brightLUT[medianVals[j]] ||
+                               pixelVals[j] < darkLUT[medianVals[j]])) {
                 imgPtr[idx] = medianVals[j];
             }
         }
     }
 
-    // Handle remaining pixels
+    // Handle remaining pixels with mask check
     for (int i = alignedSize; i < totalPixels; ++i) {
+        if (!maskPtr[i]) continue;
+
         const int y = i / rawImage.cols;
         const int x = i % rawImage.cols;
         const int bayerIdx = (y % 2) * 2 + (x % 2);
@@ -156,6 +169,7 @@ void correctDeadPixels(cv::Mat& rawImage, float brightFactor, float darkFactor) 
         }
     }
 }
+
 
 
 void saveImage(const std::string &imagePath, const cv::Mat &image) {
@@ -238,13 +252,13 @@ void processImages(const std::vector<Image> &images, const int demosaicMode, con
         // Create mask for non-zero pixels (valid image data)
         cv::Mat mask = (image_ != 0);
 
-        correctDeadPixels(image_, 1.5f, 0.75f);
+        correctDeadPixels(image_, mask, 1.5f, 0.75f);
         cv::Mat image = applyVignetteCorrection(image_, model);
 
         // Convert to float for processing
         image.convertTo(image, CV_32F);
         // Black level correction
-        cv::subtract(image, ACTUAL_MAX_BLACKLEVEL, image);
+        cv::subtract(image, ACTUAL_MAX_BLACKLEVEL, image, mask);
         cv::max(image, 0, image);
         // Normalize to full 16-bit range
         image.convertTo(image, CV_32F, 1.0 / (ACTUAL_MAX_VALUE - ACTUAL_MAX_BLACKLEVEL));
@@ -255,16 +269,29 @@ void processImages(const std::vector<Image> &images, const int demosaicMode, con
         cv::Mat processed_image;
         cv::demosaicing(image, processed_image, demosaicMode); //https://docs.opencv.org/3.4/d8/d01/group__imgproc__color__conversions.html
 
-        // After demosaicing (processed_image is still 16-bit)
-        double max_value;
-        cv::minMaxLoc(processed_image, nullptr, &max_value);
+        cv::Mat rgbMask;
+        cv::cvtColor(mask, rgbMask, cv::COLOR_GRAY2BGR);
 
-        // Apply gamma correction
+        //
+        // // After demosaicing (processed_image is still 16-bit)
+        // double max_value;
+        // cv::minMaxLoc(processed_image, nullptr, &max_value);
+
+        // Apply gamma correction only to masked pixels
         if (gamma != 1.0) {
-            processed_image.convertTo(processed_image, CV_32F, 1.0/65535.0);
-            cv::pow(processed_image, gamma, processed_image);
+            cv::Mat gamma_input;
+            processed_image.convertTo(gamma_input, CV_32F, 1.0/65535.0);
+
+            // Create output matrix
+            cv::Mat gamma_corrected = gamma_input.clone();
+
+            // Apply gamma correction only where mask is non-zero
+            cv::pow(gamma_input, gamma, gamma_corrected);
+            gamma_corrected.copyTo(processed_image, rgbMask);
+
             processed_image.convertTo(processed_image, CV_16U, 65535.0);
         }
+
 
         // Save image
         saveImage(images[idx].writePath, processed_image);
