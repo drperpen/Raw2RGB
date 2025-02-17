@@ -11,10 +11,6 @@ void printImageInfo(const cv::Mat& image, const cv::Point& pixel) {
     int depth = type & CV_MAT_DEPTH_MASK;  // Extract the depth part
     int channels = 1 + (type >> CV_CN_SHIFT);  // Extract the channel count
 
-    // std::cout << "Image Information:\n";
-    // std::cout << " - Dimensions: " << image.cols << " x " << image.rows << "\n";
-    // std::cout << " - Channels: " << channels << "\n";
-    // std::cout << " - Data depth: ";
     switch (depth) {
         case CV_8U:  std::cout << "8-bit unsigned\n"; break;
         case CV_8S:  std::cout << "8-bit signed\n"; break;
@@ -193,9 +189,9 @@ std::vector<Image> getRawFiles(const std::string& folderPath, const std::string&
 }
 //         cv::demosaicing(image, processed_image, demosaicMode); //https://docs.opencv.org/3.4/d8/d01/group__imgproc__color__conversions.html
 
-void processImages(const std::vector<Image> &images, const int demosaicMode, const double gamma, const std::string vignettePath) {
+void processImages(const std::vector<Image> &images, const int demosaicMode, const double gamma, const std::string &vignettePath) {
 
-    const int ACTUAL_MAX_VALUE = 1225;
+    // const int ACTUAL_MAX_VALUE = 1225;
     const int ACTUAL_MAX_BLACKLEVEL = 64;
 
     std::filesystem::path filePath(images[0].writePath);
@@ -220,44 +216,37 @@ void processImages(const std::vector<Image> &images, const int demosaicMode, con
     // Load
     cv::Mat image_ref = loadImage(images[0].readPath);
     cv::Mat loadedMap(image_ref.rows, image_ref.cols, CV_64F);
-    FILE* fp = fopen(vignettePath.c_str(), "rb");
-    fread(loadedMap.data, sizeof(double), image_ref.rows*image_ref.cols, fp);
-    fclose(fp);
     VignetteModel model;
-    model.correctionMap = loadedMap;
+    bool useVignetteCorrection = false; // Flag to track if vignette correction should be applied
+
+    FILE* fp = fopen(vignettePath.c_str(), "rb");
+    if (fp) {
+        // File exists, proceed to load
+        fread(loadedMap.data, sizeof(double), image_ref.rows * image_ref.cols, fp);
+        fclose(fp);
+        model.correctionMap = loadedMap;
+        useVignetteCorrection = true; // Enable vignette correction
+    } else {
+        // File does not exist, log a warning and proceed without vignette correction
+        std::cerr << "Warning: Vignette map file '" << vignettePath << "' does not exist. Proceeding without vignette correction." << std::endl;
+    }
 
     cv::Mat blackLevelMat = cv::Mat::ones(2, 2, CV_32F) * ACTUAL_MAX_BLACKLEVEL;
-
 
 
 #pragma omp parallel for
     for (int idx = 0; idx < images.size(); idx++) {
 
-        // auto start_time = std::chrono::high_resolution_clock::now();
         cv::Mat image_ = loadImage(images[idx].readPath);
-        // auto end_time = std::chrono::high_resolution_clock::now();
-        // auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-        // std::cout << "Total processing time loadImage: " << duration << " s" << std::endl;
-
 
         // Create mask for non-zero pixels (valid image data)
         cv::Mat mask = (image_ != 0); // This creates a CV_8U mask (values 0 or 255)
-        // mask.convertTo(mask, CV_8U); // Ensure it's explicitly unsigned char
-        // mask = mask / 255;          // Scale to binary (0 or 1)
-
-        // start_time = std::chrono::high_resolution_clock::now();
         correctDeadPixels(image_, 1.5f, 0.75f);
-        // end_time = std::chrono::high_resolution_clock::now();
-        // duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-        // std::cout << "Total processing time correctDeadPixels: " << duration << " s" << std::endl;
+        cv::Mat image = image_;
+        if (useVignetteCorrection) {
+            image = applyVignetteCorrection(image_, model);
+        }
 
-        // start_time = std::chrono::high_resolution_clock::now();
-        cv::Mat image = applyVignetteCorrection(image_, model);
-        // end_time = std::chrono::high_resolution_clock::now();
-        // duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-        // std::cout << "Total processing time applyVignetteCorrection: " << duration << " s" << std::endl;
-
-        // start_time = std::chrono::high_resolution_clock::now();
         // Convert to float for processing
         image.convertTo(image, CV_32F);
         double minVal, maxVal;
@@ -267,49 +256,35 @@ void processImages(const std::vector<Image> &images, const int demosaicMode, con
 
         // Normalize to full 16-bit range
         image.convertTo(image, CV_32F, 1.0 / (maxVal - ACTUAL_MAX_BLACKLEVEL));
-        // end_time = std::chrono::high_resolution_clock::now();
-        // duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-        // std::cout << "Total processing time BLACKLEVEL: " << duration << " s" << std::endl;
 
         // Apply gamma correction
-        // start_time = std::chrono::high_resolution_clock::now();
         if (gamma != 1.0) {
             cv::pow(image, gamma, image);
         }
-        // end_time = std::chrono::high_resolution_clock::now();
-        // duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-        // std::cout << "Total processing time gamma: " << duration << " s" << std::endl;
 
         // Convert to 16-bit
         image.convertTo(image, CV_16U, 65535.0);
 
         cv::Mat processed_image;
-        // start_time = std::chrono::high_resolution_clock::now();
         cv::demosaicing(image, processed_image, demosaicMode); //https://docs.opencv.org/3.4/d8/d01/group__imgproc__color__conversions.html
-        // end_time = std::chrono::high_resolution_clock::now();
-        // duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-        // std::cout << "Total processing time demosaicing: " << duration << " s" << std::endl;
 
         cv::Mat outputImage;
         processed_image.convertTo(outputImage, CV_8U, 1.0 / 256.0);
 
         // Save image
-        // start_time = std::chrono::high_resolution_clock::now();
         saveImage(images[idx].writePath, outputImage);
-        // end_time = std::chrono::high_resolution_clock::now();
-        // duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-        // std::cout << "Total processing time saveImage: " << duration << " s" << std::endl;
+
         }
 
     std::cout << "Finished Saving images to : " << folderPath.string() <<  std::endl;
 }
 
 
-float calculateEntropy(float a, float b, float c, const cv::Mat& img) {
+float calculateEntropy(const float a, const float b, const float c, const cv::Mat& img) {
     const int rows = img.rows;
     const int cols = img.cols;
 
-    float centerX = cols/2.0f, centerY = rows/2.0f;
+    const float centerX = static_cast<float>(cols)/2.0f, centerY = static_cast<float>(rows)/2.0f;
     const float maxRadius = std::sqrt(centerX*centerX + centerY*centerY);
 
     // Create floating point image for intermediate calculations
@@ -437,14 +412,14 @@ VignetteModel estimateVignetting(const cv::Mat& rawBayer, const std::string &out
 
     // Create correction map
     cv::Mat correctionMap(rawBayer.size(), CV_64F);
-    const float centerX = rawBayer.cols/2.0f;
-    const float centerY = rawBayer.rows/2.0f;
+    const float centerX = static_cast<float>(rawBayer.cols)/2.0f;
+    const float centerY = static_cast<float>(rawBayer.rows)/2.0f;
     const float maxRadius = std::sqrt(centerX*centerX + centerY*centerY);
 
     for(int y = 0; y < rawBayer.rows; y++) {
         for(int x = 0; x < rawBayer.cols; x++) {
-            float dx = x - centerX;
-            float dy = y - centerY;
+            float dx = static_cast<float>(x) - centerX;
+            float dy = static_cast<float>(y) - centerY;
             float r = std::sqrt(dx*dx + dy*dy) / maxRadius;
             float r2 = r*r;
             float r4 = r2*r2;
@@ -483,99 +458,4 @@ cv::Mat applyVignetteCorrection(const cv::Mat& rawBayer, const VignetteModel& mo
     cv::Mat output;
     result.convertTo(output, CV_16U);
     return output;
-}
-
-
-std::unordered_map<int, Image> loadAndProcessImages(const std::string &path, int frame, int startCam, int endCam, std::map<int, cameraStrct> camData)
-    {
-
-        auto start = std::chrono::system_clock::now();
-
-        std::unordered_map<int, Image> images;
-        std::mutex mtx;
-
-#pragma omp parallel for
-    for (int idx = startCam; idx <= endCam; idx++)
-    {
-        std::string pathIter = path;
-
-        // // kochika
-        // size_t pad2 = 2;
-        // auto frameStr = std::string(size_t(2) - std::min(size_t(2), std::to_string(idx).length()), '0') + std::to_string(idx);
-        // pathIter += "capture_focus_" + frameStr + ".jpg";
-
-        // dome
-        size_t pad2 = 3;
-        constexpr size_t paddingWidth = 3;
-        auto frameStr = std::string(paddingWidth - std::min(paddingWidth, std::to_string(idx).length()), '0') + std::to_string(idx);
-        pathIter += "C" + frameStr + "F0002000.png";
-
-        // std::cout << "frameStr: " << frameStr << std::endl;
-
-        if (std::filesystem::exists(pathIter))
-        {
-            cv::Mat img = cv::imread(pathIter);
-
-            //             #### Demosaicing
-
-            // img_d = cv.demosaicing(img, cv.COLOR_BayerRG2BGR)
-            // ratio = np.amax(img_d) / 255
-            // img_d = (img_d / ratio).astype('uint8')
-            // gamma = 1.75
-            // invGamma = 1.0 / gamma
-            // table = np.array([((i / 255.0) ** invGamma) * 255
-            //     for i in np.arange(0, 256)]).astype("uint8")
-            // img_d = cv.LUT(img_d, table)
-
-            // cv::Mat distortions = (cv::Mat_<double>(5, 1) << camData[idx].k1,
-            //                        camData[idx].k2,
-            //                        camData[idx].p2,
-            //                        camData[idx].p1,
-            //                        camData[idx].k3);
-
-            cv::Mat distortions = (cv::Mat_<double>(5, 1) << camData[idx].k1,
-                                   camData[idx].k2,
-                                   camData[idx].p2,
-                                   camData[idx].p1,
-                                   camData[idx].k3);
-
-            cv::Mat camMatrix = (cv::Mat_<double>(3, 3) << camData[idx].f, 0.0, (camData[idx].resolution.height / 2.0) + camData[idx].cx,
-                                 0.0, camData[idx].f, (camData[idx].resolution.width / 2.0) + camData[idx].cy,
-                                 0.0, 0.0, 1.0);
-
-            cv::Mat offsetCamMatrix;
-            camMatrix.copyTo(offsetCamMatrix);
-            offsetCamMatrix.at<double>(0, 2) -= camData[idx].cx;
-            offsetCamMatrix.at<double>(1, 2) -= camData[idx].cy;
-
-            cv::Mat map1, map2;
-            cv::initUndistortRectifyMap(camMatrix,
-                                        distortions,
-                                        cv::Mat::eye(3, 3, CV_64F),
-                                        offsetCamMatrix,
-                                        cv::Size(camData[idx].resolution.width, camData[idx].resolution.height),
-                                        CV_32FC1,
-                                        map1, map2);
-
-            cv::Mat undistortedImg;
-            cv::remap(img, undistortedImg, map1, map2, cv::INTER_LINEAR);
-
-            // imagesStrct imgStrct = imagesStrct(idx, undistortedImg, pathIter);
-
-            // // Undistort
-
-            // mtx.lock();
-            // imgs.insert(std::make_pair(idx, imgStrct));
-            // mtx.unlock();
-        }
-        else
-        {
-            std::cout << "Could not find image: " << pathIter << std::endl;
-        }
-    }
-    // Images::images = imgs;
-    // auto end = std::chrono::system_clock::now();
-    // std::chrono::duration<double> elap = end - start;
-    // std::cout << imgs.size() << " images loaded in " << elap.count() << " seconds" << std::endl;
-    return images;
 }
