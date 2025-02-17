@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.5.0)
 project(Raw2RGB VERSION 0.1.0 LANGUAGES C CXX)
+add_compile_definitions(PROJECT_VERSION="${PROJECT_VERSION}")
 
 # Set C++ Standard
 set(CMAKE_CXX_STANDARD 17)
@@ -18,12 +19,20 @@ find_package(Eigen3 REQUIRED)
 # Add OpenMP support
 find_package(OpenMP)
 
+configure_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/version.h.in
+        ${CMAKE_CURRENT_BINARY_DIR}/version.h
+        @ONLY
+)
+
 # Include directories
 include_directories(${PROJECT_FOLDER}/include)
 
 # Add executable with source files
-add_executable(Raw2RGB src/main.cpp src/image_process.cpp)
+add_executable(Raw2RGB src/main.cpp src/image_process.cpp
+        include/argparse.hpp)
 
+target_include_directories(Raw2RGB PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
 if(OpenMP_CXX_FOUND)
     message(STATUS "Found OpenMP, enabling support.")
