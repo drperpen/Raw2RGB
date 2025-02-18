@@ -139,4 +139,4 @@ Helps determine optimal vignette correction coefficients by calculating image en
 - Implement undistort process with Metashape .xml data.
 
 ## License
-This project is licensed under the MIT license. See [LICENSE.txt](LICENSE) for more details.
+This project is licensed under the MIT license. See [./LICENSE.txt](LICENSE) for more details.
