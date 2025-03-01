@@ -6,7 +6,7 @@
 #include <immintrin.h>
 #include "lut_utils.h"
 
-cv::Mat loadImage(const std::string &imagePath);
+cv::Mat loadImage(const std::string &imagePath, const std::string &logFilePath);
 void printImageInfo(const cv::Mat& image, const cv::Point& pixel);
 void shiftBlackPixels(cv::Mat& image, ushort neutralValue = 2048);
 void correctDeadPixels(cv::Mat& rawImage, float brightFactor = 2.5, float darkFactor = 0.2);

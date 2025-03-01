@@ -7,17 +7,34 @@ void shiftBlackPixels(cv::Mat& image, ushort neutralValue) {
 }
 
 
-cv::Mat loadImage(const std::string &imagePath) {
+cv::Mat loadImage(const std::string &imagePath, const std::string &logFilePath) {
+    // Attempt to load the image
     cv::Mat mat = cv::imread(imagePath, cv::IMREAD_UNCHANGED);
-    // Step 2: Extract channel
-    cv::Mat singleChannel;
+
+    // Check if the image was successfully loaded
+    if (mat.empty()) {
+        // Log the issue to a file
+        std::ofstream logFile(logFilePath, std::ios_base::app); // Open in append mode
+        if (logFile.is_open()) {
+            logFile << "Error! Skipping image: " << imagePath << std::endl;
+            logFile.close();
+        } else {
+            std::cerr << "Failed to open log file at " << logFilePath << std::endl;
+        }
+
+        // Return an empty matrix to indicate failure
+        return cv::Mat();
+    }
+
     if (mat.channels() == 3) {
         std::vector<cv::Mat> channels;
         cv::split(mat, channels);
         mat = channels[2];
     }
+
     return mat;
 }
+
 
 void printImageInfo(const cv::Mat& image, const cv::Point& pixel) {
     // Get type
@@ -246,6 +263,7 @@ void processImages(
 
     std::filesystem::path filePath(images[0].writePath);
     std::filesystem::path folderPath = filePath.parent_path();
+    std::string logPath = folderPath.string() + "/log.txt";
 
     // Check if the folder exists
     if (!std::filesystem::exists(folderPath)) {
@@ -262,7 +280,7 @@ void processImages(
     }
 
     // Load vignette map
-    cv::Mat image_ref = loadImage(images[0].readPath);
+    cv::Mat image_ref = loadImage(images[0].readPath, logPath);
 
     cv::Mat loadedMap(image_ref.rows, image_ref.cols, CV_64F);
     VignetteModel model;
@@ -294,7 +312,7 @@ void processImages(
 
 #pragma omp parallel for
     for (int idx = 0; idx < images.size(); idx++) {
-        cv::Mat image_ = loadImage(images[idx].readPath);
+        cv::Mat image_ = loadImage(images[idx].readPath, logPath);
 
         // Create mask for non-zero pixels (valid image data)
         cv::Mat mask = (image_ != 0); // This creates a CV_8U mask (values 0 or 255)
@@ -324,8 +342,6 @@ void processImages(
             image.convertTo(image, CV_16U, 65535.0);
         }
 
-
-
         cv::Mat processed_image;
         cv::demosaicing(image, processed_image, demosaicMode); //https://docs.opencv.org/3.4/d8/d01/group__imgproc__color__conversions.html
 
@@ -354,6 +370,7 @@ void generate16bit(
 
     std::filesystem::path filePath(image.writePath);
     std::filesystem::path folderPath = filePath.parent_path();
+    std::string logPath = folderPath.string() + "/log.txt";
 
     // Check if the folder exists
     if (!std::filesystem::exists(folderPath)) {
@@ -372,11 +389,10 @@ void generate16bit(
 
     // Load vignette map
     // Load
-    cv::Mat image_ref = loadImage(image.readPath);
+    cv::Mat image_ref = loadImage(image.readPath, logPath);
     cv::Mat loadedMap(image_ref.rows, image_ref.cols, CV_64F);
 
-    cv::Mat image_ = loadImage(image.readPath);
-    shiftBlackPixels(image_, 4096);
+    cv::Mat image_ = loadImage(image.readPath, logPath);
 
     // Create mask for non-zero pixels (valid image data)
     cv::Mat mask = (image_ != 0); // This creates a CV_8U mask (values 0 or 255)

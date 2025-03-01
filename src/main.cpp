@@ -55,7 +55,7 @@ int main(const int argc, char** argv) {
             std::cout << "Generating vignette map..." << std::endl;
             const auto img_load_path = program.get<std::string>("input_path");
             const auto map_save_path = program.get<std::string>("output_path");
-            auto map = estimateVignetting(loadImage(img_load_path), map_save_path);
+            auto map = estimateVignetting(loadImage(img_load_path, "log.txt"), map_save_path);
             std::cout << "Saved vignette map at: " << map_save_path << std::endl;
             return 0;
 
