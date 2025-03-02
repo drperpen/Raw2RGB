@@ -36,7 +36,7 @@ int main(const int argc, char** argv) {
         .scan<'g', double>();  // Parse into a double
     program.add_argument("--vignette_path")
         .help("Path to an existing vignette map")
-        .default_value(std::string("vignette_map.bin"));  // Default vignette map
+        .default_value(std::string(""));
     program.add_argument("--demosaic_mode")
         .help("Demosaic mode to use (default is 48)")
         .default_value(48)

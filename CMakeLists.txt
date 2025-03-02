@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.5.0)
-project(Raw2RGB VERSION 0.2.0 LANGUAGES C CXX)
+project(Raw2RGB VERSION 0.2.1 LANGUAGES C CXX)
 add_compile_definitions(PROJECT_VERSION="${PROJECT_VERSION}")
 
 # Set C++ Standard

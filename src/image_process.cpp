@@ -260,6 +260,7 @@ void processImages(
 
     // const int ACTUAL_MAX_VALUE = 1225;
     const int ACTUAL_MAX_BLACKLEVEL = 64;
+    const double ASSUMED_MAX_VALUE = 4095.0; // Assuming 10-bit raw data
 
     std::filesystem::path filePath(images[0].writePath);
     std::filesystem::path folderPath = filePath.parent_path();
@@ -281,21 +282,22 @@ void processImages(
 
     // Load vignette map
     cv::Mat image_ref = loadImage(images[0].readPath, logPath);
-
     cv::Mat loadedMap(image_ref.rows, image_ref.cols, CV_64F);
     VignetteModel model;
     bool useVignetteCorrection = false; // Flag to track if vignette correction should be applied
 
-    FILE* fp = fopen(vignettePath.c_str(), "rb");
-    if (fp) {
-        // File exists, proceed to load
-        fread(loadedMap.data, sizeof(double), image_ref.rows * image_ref.cols, fp);
-        fclose(fp);
-        model.correctionMap = loadedMap;
-        useVignetteCorrection = true; // Enable vignette correction
-    } else {
-        // File does not exist, log a warning and proceed without vignette correction
-        std::cerr << "Warning: Vignette map file '" << vignettePath << "' does not exist. Proceeding without vignette correction." << std::endl;
+    if (!vignettePath.empty()) {
+        FILE* fp = fopen(vignettePath.c_str(), "rb");
+        if (fp) {
+            // File exists, proceed to load
+            fread(loadedMap.data, sizeof(double), image_ref.rows * image_ref.cols, fp);
+            fclose(fp);
+            model.correctionMap = loadedMap;
+            useVignetteCorrection = true; // Enable vignette correction
+        } else {
+            // File does not exist, log a warning and proceed without vignette correction
+            std::cerr << "Warning: Vignette map file '" << vignettePath << "' does not exist. Proceeding without vignette correction." << std::endl;
+        }
     }
 
     // Load LUT once for all images or create black level
@@ -325,16 +327,18 @@ void processImages(
         if (!useLUT) {
             // Convert to float for processing
             image.convertTo(image, CV_32F);
-            double minVal, maxVal;
-            cv::minMaxLoc(image, &minVal, &maxVal, nullptr, nullptr, mask);
+
+            // Apply black level subtraction to all valid pixels
             cv::subtract(image, ACTUAL_MAX_BLACKLEVEL, image, mask);
             cv::max(image, 0, image);
 
-            // Normalize to full 16-bit range
-            image.convertTo(image, CV_32F, 1.0 / (maxVal - ACTUAL_MAX_BLACKLEVEL));
+            // Use a fixed normalization factor instead of dynamic min/max
+            // This ensures consistent gamma correction regardless of image content
+            image.convertTo(image, CV_32F, 1.0 / (ASSUMED_MAX_VALUE - ACTUAL_MAX_BLACKLEVEL));
 
             // Apply gamma correction
             if (gamma != 1.0) {
+                // Only apply gamma to non-zero pixels to maintain black levels
                 cv::pow(image, gamma, image);
             }
 
