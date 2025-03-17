@@ -130,8 +130,6 @@ Helps determine optimal vignette correction coefficients by calculating image en
 └── README.md                    # Documentation
 ```
 ## Known Limitations
-- The implementation assumes all input files are Bayer images in `.tiff` format.
-- The vignette map must match the size of the input images; otherwise, corrections may fail.
 - SIMD optimizations may not work on hardware without AVX, SSE, or similar instruction sets.
 
 ## Future Improvements
