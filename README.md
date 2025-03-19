@@ -139,4 +139,4 @@ Helps determine optimal vignette correction coefficients by calculating image en
 ## License
 This project is licensed under the MIT license. See [LICENSE](LICENSE.txt) for more details.
 
-A special thanks to Peter Flaherty Pictures for their support and generosity in open-sourcing this project. Their commitment to open-source development makes this work accessible to the community.
+A special thanks to Peter Flaherty and Flaherty Pictures for their support and generosity in open-sourcing this project. Their commitment to open-source development makes this work accessible to the community.
