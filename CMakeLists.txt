@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.5.0)
-project(Raw2RGB VERSION 0.1.0 LANGUAGES C CXX)
+project(Raw2RGB VERSION 0.2.1 LANGUAGES C CXX)
 add_compile_definitions(PROJECT_VERSION="${PROJECT_VERSION}")
 
 # Set C++ Standard
@@ -26,11 +26,16 @@ configure_file(
 )
 
 # Include directories
-include_directories(${PROJECT_FOLDER}/include)
+include_directories(
+        ${CMAKE_BINARY_DIR}
+        ${PROJECT_FOLDER}/include)
 
 # Add executable with source files
 add_executable(Raw2RGB src/main.cpp src/image_process.cpp
-        include/argparse.hpp)
+        include/argparse.hpp
+        include/lut_utils.h
+        src/lut_utils.cpp
+)
 
 target_include_directories(Raw2RGB PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 

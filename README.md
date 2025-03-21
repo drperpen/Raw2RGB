@@ -15,6 +15,10 @@ With an **Intel Core i9-10940X CPU @ 3.30GHz**, the pipeline processes images at
     - Applies vignetting correction using the estimated vignette parameters.
     - Supports exporting and loading of vignette correction maps.
 
+- **LUT Color Correction:**
+  - Supports the application of Lookup Tables (LUTs) for color grading and transformations.
+  - Provide the path to your LUT file in `.cube` format using the `--lut_path` argument.
+
 - **Gamma Correction:**
     - Applies gamma correction to images for adjusting brightness and contrast.
 
@@ -63,72 +67,51 @@ With an **Intel Core i9-10940X CPU @ 3.30GHz**, the pipeline processes images at
 1. Execute the binary (details provided in the [Usage](#usage) section).
 
 ## Usage
-### Processing a Directory of Raw Images
-Run the executable with the following parameters:
-``` bash
-Raw2RGB <input_directory> <output_directory> <demosaicMode> <gamma> <vignette_path>
+
+Raw2RGB can operate in three different modes:
+
+### Standard Processing Mode
+
+Processes raw TIFF files into color PNG images with various corrections.
+```bash
+./Raw2RGB <input_directory> <output_directory> [options]
 ```
-### Parameters:
+
+**Mandatory Parameters:**
 - `<input_directory>` — Folder containing input `.tiff` files.
 - `<output_directory>` — Folder to store the processed `.png` files.
-- `<demosaicMode>` — OpenCV demosaicing mode (e.g., `CV_BayerRG2RGB`).
-- `<gamma>` — Gamma correction factor (e.g., `2.2`).
-- `<vignette_path>` — Optional vignette correction `.dat` file. If not present, the correction is skipped.
 
-Example:
-``` bash
-Raw2RGB ./raw_images ./processed_images CV_BayerRG2RGB 2.2 vignette_map.dat
+**Optional Parameters:**
+- `--demosaic_mode <mode>` — OpenCV demosaicing mode (default: 48).
+- `--gamma <value>` — Gamma correction factor (default: 0.7).
+- `--lut_path <path>` — Path to a lookup table file.
+- `--vignette_path <path>` — Path to vignette correction `.dat` file. If not provided, vignette correction is skipped.
+
+### Vignette Map Generation Mode
+
+Generates a vignette correction map from a calibration image.
+```bash
+./Raw2RGB --generate_vignette_map <input_image> <output_map_file>
 ```
-### API Overview
-#### 1. Load Images
-Function: `loadImage(const std::string &imagePath)`
-Loads the raw Bayer image from the specified file.
-``` cpp
-cv::Mat image = loadImage("image.tiff");
+
+**Mandatory Parameters:**
+- `<input_image>` — Input image to use for vignette calibration.
+- `<output_map_file>` — Path where the generated vignette map will be saved.
+
+### 16-bit Image Generation Mode
+
+Generates a 16-bit image from a raw file.
+```bash
+./Raw2RGB --generate_16bit <input_file> <output_file> [options]
 ```
-#### 2. Save Processed Images
-Function: `saveImage(const std::string &imagePath, const cv::Mat &image)`
-Saves an image to the specified path.
-``` cpp
-saveImage("output.png", image);
-```
-#### 3. Correct Dead Pixels
-Function: `correctDeadPixels(cv::Mat& rawImage, float brightFactor, float darkFactor)`
-Corrects defective pixel regions in raw Bayer images.
-``` cpp
-correctDeadPixels(image, 1.5, 0.75);
-```
-#### 4. Apply Vignetting Correction
-Function: `applyVignetteCorrection(const cv::Mat& rawBayer, const VignetteModel& model)`
-Applies vignette correction using a pre-computed correction map.
-``` cpp
-VignetteModel model = estimateVignetting(image, "vignette.dat", "RG", 3);
-image = applyVignetteCorrection(image, model);
-```
-#### 5. Process All Images in a Directory
-Function: `processImages(const std::vector<Image> &images, const int demosaicMode, const double gamma, const std::string &vignettePath)`
-Processes multiple images by loading the input files, applying corrections, and saving the results.
-``` cpp
-std::vector<Image> images = getRawFiles("input_folder", "output_folder");
-processImages(images, CV_BayerRG2RGB, 2.2, "vignette.dat");
-```
-#### 6. Vignette Estimation
-Function: `estimateVignetting(const cv::Mat& rawBayer, const std::string &outPath, const std::string& bayerPattern, int polyDegree)`
-Calculates vignette correction coefficients by minimizing entropy on a Bayer-patterned image.
-#### 7. Calculating Entropy
-Function: `calculateEntropy(const float a, const float b, const float c, const cv::Mat& img)`
-Helps determine optimal vignette correction coefficients by calculating image entropy.
-## File Structure
-``` plaintext
-.
-├── include/
-│   ├── image_process.h          # Header for processing functions
-├── src/
-│   ├── main.cpp                 # Entry point
-│   ├── image_process.cpp        # Image processing implementation
-├── CMakeLists.txt               # Build configuration
-└── README.md                    # Documentation
-```
+
+**Mandatory Parameters:**
+- `<input_file>` — Input raw file.
+- `<output_file>` — Path where the generated 16-bit image will be saved.
+
+**Optional Parameters:**
+- `--demosaic_mode <mode>` — OpenCV demosaicing mode (default: 48).
+
 ## Known Limitations
 - SIMD optimizations may not work on hardware without AVX, SSE, or similar instruction sets.
 

@@ -1,9 +1,40 @@
 #include "image_process.h"
 
-cv::Mat loadImage(const std::string &imagePath) {
-    cv::Mat mat = cv::imread(imagePath, cv::IMREAD_ANYDEPTH);
+void shiftBlackPixels(cv::Mat& image, ushort neutralValue) {
+    // Process all pixels in parallel using OpenCV's optimized operations
+    cv::Mat zeroMask = (image == 0);
+    image.setTo(neutralValue, zeroMask);
+}
+
+
+cv::Mat loadImage(const std::string &imagePath, const std::string &logFilePath) {
+    // Attempt to load the image
+    cv::Mat mat = cv::imread(imagePath, cv::IMREAD_UNCHANGED);
+
+    // Check if the image was successfully loaded
+    if (mat.empty()) {
+        // Log the issue to a file
+        std::ofstream logFile(logFilePath, std::ios_base::app); // Open in append mode
+        if (logFile.is_open()) {
+            logFile << "Error! Skipping image: " << imagePath << std::endl;
+            logFile.close();
+        } else {
+            std::cerr << "Failed to open log file at " << logFilePath << std::endl;
+        }
+
+        // Return an empty matrix to indicate failure
+        return cv::Mat();
+    }
+
+    if (mat.channels() == 3) {
+        std::vector<cv::Mat> channels;
+        cv::split(mat, channels);
+        mat = channels[2];
+    }
+
     return mat;
 }
+
 
 void printImageInfo(const cv::Mat& image, const cv::Point& pixel) {
     // Get type
@@ -187,15 +218,53 @@ std::vector<Image> getRawFiles(const std::string& folderPath, const std::string&
     }
     return images;
 }
-//         cv::demosaicing(image, processed_image, demosaicMode); //https://docs.opencv.org/3.4/d8/d01/group__imgproc__color__conversions.html
 
-void processImages(const std::vector<Image> &images, const int demosaicMode, const double gamma, const std::string &vignettePath) {
+Image getRawFile(const std::string& inputPath, const std::string& outputPath) {
+    Image imgStruct;
+
+    // Create filesystem paths
+    std::filesystem::path inPath(inputPath);
+    std::filesystem::path outPath(outputPath);
+
+    // Verify input file exists and has correct extension
+    if (!std::filesystem::exists(inPath) ||
+        (inPath.extension() != ".tiff" && inPath.extension() != ".TIFF")) {
+        throw std::runtime_error("Invalid input file or unsupported format");
+        }
+
+    // Set the readPath
+    imgStruct.readPath = inputPath;
+
+    // Create the writePath
+    if (std::filesystem::is_directory(outPath)) {
+        // If output is a directory, create filename inside it
+        std::string outputFileName = inPath.stem().string() + ".png";
+        imgStruct.writePath = (outPath / outputFileName).string();
+    } else {
+        // Use output path as is
+        imgStruct.writePath = outputPath;
+    }
+
+    // Set frame to 0 since it's a single file
+    imgStruct.frame = 0;
+
+    return imgStruct;
+}
+
+void processImages(
+    const std::vector<Image> &images,
+    const int demosaicMode,
+    const double gamma,
+    const std::string &vignettePath,
+    const std::string& lutPath) {
 
     // const int ACTUAL_MAX_VALUE = 1225;
     const int ACTUAL_MAX_BLACKLEVEL = 64;
+    const double ASSUMED_MAX_VALUE = 4095.0; // Assuming 10-bit raw data
 
     std::filesystem::path filePath(images[0].writePath);
     std::filesystem::path folderPath = filePath.parent_path();
+    std::string logPath = folderPath.string() + "/log.txt";
 
     // Check if the folder exists
     if (!std::filesystem::exists(folderPath)) {
@@ -206,38 +275,46 @@ void processImages(const std::vector<Image> &images, const int demosaicMode, con
             std::cout << "Saving images to : " << folderPath.string()<< std::endl;
         } catch (const std::exception &e) {
             std::cerr << "Error creating directory: " << e.what() << std::endl;
-            // return; // Exit if directory creation fails
         }
     } else {
         std::cout << "Saving images to : " << folderPath.string() << std::endl;
     }
 
     // Load vignette map
-    // Load
-    cv::Mat image_ref = loadImage(images[0].readPath);
+    cv::Mat image_ref = loadImage(images[0].readPath, logPath);
     cv::Mat loadedMap(image_ref.rows, image_ref.cols, CV_64F);
     VignetteModel model;
     bool useVignetteCorrection = false; // Flag to track if vignette correction should be applied
 
-    FILE* fp = fopen(vignettePath.c_str(), "rb");
-    if (fp) {
-        // File exists, proceed to load
-        fread(loadedMap.data, sizeof(double), image_ref.rows * image_ref.cols, fp);
-        fclose(fp);
-        model.correctionMap = loadedMap;
-        useVignetteCorrection = true; // Enable vignette correction
-    } else {
-        // File does not exist, log a warning and proceed without vignette correction
-        std::cerr << "Warning: Vignette map file '" << vignettePath << "' does not exist. Proceeding without vignette correction." << std::endl;
+    if (!vignettePath.empty()) {
+        FILE* fp = fopen(vignettePath.c_str(), "rb");
+        if (fp) {
+            // File exists, proceed to load
+            fread(loadedMap.data, sizeof(double), image_ref.rows * image_ref.cols, fp);
+            fclose(fp);
+            model.correctionMap = loadedMap;
+            useVignetteCorrection = true; // Enable vignette correction
+        } else {
+            // File does not exist, log a warning and proceed without vignette correction
+            std::cerr << "Warning: Vignette map file '" << vignettePath << "' does not exist. Proceeding without vignette correction." << std::endl;
+        }
     }
 
-    cv::Mat blackLevelMat = cv::Mat::ones(2, 2, CV_32F) * ACTUAL_MAX_BLACKLEVEL;
+    // Load LUT once for all images or create black level
+    ColorLUT colorLUT;
+    bool useLUT = false;
+    if (!lutPath.empty()) {
+        useLUT = colorLUT.load(lutPath);
+        useLUT = true;
+        std::cout << "Loaded color LUT from: " << lutPath << std::endl;
+    } else {
+        cv::Mat blackLevelMat = cv::Mat::ones(2, 2, CV_32F) * ACTUAL_MAX_BLACKLEVEL;
+    }
 
 
 #pragma omp parallel for
     for (int idx = 0; idx < images.size(); idx++) {
-
-        cv::Mat image_ = loadImage(images[idx].readPath);
+        cv::Mat image_ = loadImage(images[idx].readPath, logPath);
 
         // Create mask for non-zero pixels (valid image data)
         cv::Mat mask = (image_ != 0); // This creates a CV_8U mask (values 0 or 255)
@@ -247,26 +324,34 @@ void processImages(const std::vector<Image> &images, const int demosaicMode, con
             image = applyVignetteCorrection(image_, model);
         }
 
-        // Convert to float for processing
-        image.convertTo(image, CV_32F);
-        double minVal, maxVal;
-        cv::minMaxLoc(image, &minVal, &maxVal, nullptr, nullptr, mask);
-        cv::subtract(image, ACTUAL_MAX_BLACKLEVEL, image, mask);
-        cv::max(image, 0, image);
+        if (!useLUT) {
+            // Convert to float for processing
+            image.convertTo(image, CV_32F);
 
-        // Normalize to full 16-bit range
-        image.convertTo(image, CV_32F, 1.0 / (maxVal - ACTUAL_MAX_BLACKLEVEL));
+            // Apply black level subtraction to all valid pixels
+            cv::subtract(image, ACTUAL_MAX_BLACKLEVEL, image, mask);
+            cv::max(image, 0, image);
 
-        // Apply gamma correction
-        if (gamma != 1.0) {
-            cv::pow(image, gamma, image);
+            // Use a fixed normalization factor instead of dynamic min/max
+            // This ensures consistent gamma correction regardless of image content
+            image.convertTo(image, CV_32F, 1.0 / (ASSUMED_MAX_VALUE - ACTUAL_MAX_BLACKLEVEL));
+
+            // Apply gamma correction
+            if (gamma != 1.0) {
+                // Only apply gamma to non-zero pixels to maintain black levels
+                cv::pow(image, gamma, image);
+            }
+
+            // Convert to 16-bit
+            image.convertTo(image, CV_16U, 65535.0);
         }
-
-        // Convert to 16-bit
-        image.convertTo(image, CV_16U, 65535.0);
 
         cv::Mat processed_image;
         cv::demosaicing(image, processed_image, demosaicMode); //https://docs.opencv.org/3.4/d8/d01/group__imgproc__color__conversions.html
+
+        if (useLUT) {
+            processed_image = colorLUT.apply(processed_image);
+        }
 
         cv::Mat outputImage;
         processed_image.convertTo(outputImage, CV_8U, 1.0 / 256.0);
@@ -278,6 +363,58 @@ void processImages(const std::vector<Image> &images, const int demosaicMode, con
 
     std::cout << "Finished Saving images to : " << folderPath.string() <<  std::endl;
 }
+
+
+void generate16bit(
+    const Image &image,
+    const int demosaicMode) {
+
+    // const int ACTUAL_MAX_VALUE = 1225;
+    const int ACTUAL_MAX_BLACKLEVEL = 64;
+
+    std::filesystem::path filePath(image.writePath);
+    std::filesystem::path folderPath = filePath.parent_path();
+    std::string logPath = folderPath.string() + "/log.txt";
+
+    // Check if the folder exists
+    if (!std::filesystem::exists(folderPath)) {
+        // If it doesn't exist, create the directory
+        try {
+            std::filesystem::create_directories(folderPath);
+            std::cout << "Created directory: " << folderPath << std::endl;
+            std::cout << "Saving 16 bit image to : " << folderPath.string()<< std::endl;
+        } catch (const std::exception &e) {
+            std::cerr << "Error creating directory: " << e.what() << std::endl;
+            // return; // Exit if directory creation fails
+        }
+    } else {
+        std::cout << "Saving 16 bit image to : " << folderPath.string() << std::endl;
+    }
+
+    // Load vignette map
+    // Load
+    cv::Mat image_ref = loadImage(image.readPath, logPath);
+    cv::Mat loadedMap(image_ref.rows, image_ref.cols, CV_64F);
+
+    cv::Mat image_ = loadImage(image.readPath, logPath);
+
+    // Create mask for non-zero pixels (valid image data)
+    cv::Mat mask = (image_ != 0); // This creates a CV_8U mask (values 0 or 255)
+    correctDeadPixels(image_, 1.5f, 0.75f);
+    cv::Mat image_temp = image_;
+
+    cv::Mat processed_image;
+    cv::demosaicing(image_temp, processed_image, demosaicMode); //https://docs.opencv.org/3.4/d8/d01/group__imgproc__color__conversions.html
+
+    cv::Mat outputImage;
+    processed_image.convertTo(outputImage, CV_16U);
+
+    // Save image
+    saveImage(image.writePath, outputImage);
+
+    std::cout << "Finished Saving 16 bit image to : " << folderPath.string() <<  std::endl;
+}
+
 
 
 float calculateEntropy(const float a, const float b, const float c, const cv::Mat& img) {
